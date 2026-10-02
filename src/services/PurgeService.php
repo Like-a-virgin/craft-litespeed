@@ -41,6 +41,11 @@ class PurgeService extends Component
     protected bool $everything = false;
 
     /**
+     * Whether to empty the private cache of the visitor this web response goes to. It can't be relayed.
+     */
+    protected bool $private = false;
+
+    /**
      * Set by a garbage collection run, whose closing invalidation of all element caches is not a content change.
      */
     protected bool $ignoreNextFullInvalidation = false;
@@ -93,6 +98,11 @@ class PurgeService extends Component
         $this->queue([], true);
     }
 
+    public function purgePrivate(): void
+    {
+        $this->private = true;
+    }
+
     /**
      * @param string[] $tags LiteSpeed tags, already prefixed.
      */
@@ -107,7 +117,7 @@ class PurgeService extends Component
 
     public function hasPending(): bool
     {
-        return $this->everything || ! empty($this->tags);
+        return $this->hasPendingPublic() || $this->private;
     }
 
     public function handleInvalidation(InvalidateElementCachesEvent $event): void
@@ -151,12 +161,15 @@ class PurgeService extends Component
 
         $settings = LiteSpeed::getInstance()->getSettings();
         $chunks = $this->everything ? [[]] : $this->chunks();
-        $value = Tags::purgeHeader($chunks[0], $this->everything, $settings->purgeStale);
+        $value = Tags::purgeHeader($chunks[0] ?? [], $this->everything, $settings->purgeStale, $this->private);
 
         if ($value !== null) {
             $response->getHeaders()->set(Header::PURGE->value, $value);
-            LiteSpeed::getInstance()->tracker->forget($chunks[0], $this->everything);
             Craft::info("Purging {$value}", 'litespeed');
+        }
+
+        if ($this->hasPendingPublic()) {
+            LiteSpeed::getInstance()->tracker->forget($chunks[0], $this->everything);
         }
 
         if (count($chunks) > 1) {
@@ -178,6 +191,12 @@ class PurgeService extends Component
         }
 
         if (! Craft::$app->getRequest()->getIsConsoleRequest() && ! $this->responsePrepared) {
+            return true;
+        }
+
+        $this->private = false;
+
+        if (! $this->hasPendingPublic()) {
             return true;
         }
 
@@ -243,7 +262,12 @@ class PurgeService extends Component
     {
         $settings = LiteSpeed::getInstance()->getSettings();
 
-        return Tags::purgeChunks($this->prefix(), array_keys($this->tags), $settings->maxHeaderLength, $settings->purgeStale);
+        return Tags::purgeChunks($this->prefix(), array_keys($this->tags), $settings->maxHeaderLength, $settings->purgeStale, $this->private);
+    }
+
+    protected function hasPendingPublic(): bool
+    {
+        return $this->everything || ! empty($this->tags);
     }
 
     /**
@@ -287,6 +311,7 @@ class PurgeService extends Component
     {
         $this->tags = [];
         $this->everything = false;
+        $this->private = false;
     }
 
     /**

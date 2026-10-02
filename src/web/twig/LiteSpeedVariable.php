@@ -3,6 +3,8 @@
 namespace GlueAgency\LiteSpeed\web\twig;
 
 use GlueAgency\LiteSpeed\LiteSpeed;
+use InvalidArgumentException;
+use Twig\Markup;
 
 /**
  * `craft.litespeed` in templates.
@@ -30,5 +32,17 @@ class LiteSpeedVariable
     public function varyCookie(string $name): void
     {
         LiteSpeed::getInstance()->cache->addVaryCookie($name);
+    }
+
+    /**
+     * Includes a template as an ESI block where LiteSpeed supports it, and inline otherwise.
+     *
+     * @param array<string, mixed> $vars
+     * @param array{cache?: string, ttl?: int, fallback?: string} $options
+     * @throws InvalidArgumentException
+     */
+    public function esi(string $template, array $vars = [], array $options = []): Markup
+    {
+        return LiteSpeed::getInstance()->esi->block($template, $vars, $options);
     }
 }

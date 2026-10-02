@@ -9,6 +9,8 @@ same response headers.
 - Saving, deleting or moving an element purges exactly the pages that showed it, through
   `X-LiteSpeed-Purge`. That also works from the queue and from console commands.
 - Logged-in users and cookie-dependent pages get their own cache variant through `X-LiteSpeed-Vary`.
+- The parts of a page that differ per visitor can be ESI blocks, which LiteSpeed fills in on every request while the
+  page around them is cached once.
 - A CP section purges URLs or tags by hand, and so do the console and the Clear Caches utility.
 - A utility shows how many pages were handed to LiteSpeed, and asks LiteSpeed whether a given URL is cached.
 - Every setting can be managed in the CP, or per environment through `config/litespeed.php`.
@@ -226,13 +228,64 @@ the cookies through, and a server that only runs nginx has no LiteSpeed cache at
 A template that sets `X-LiteSpeed-Cache-Control` itself, with `{% header %}`, keeps it: the plugin only adds
 its tags.
 
+## ESI
+
+ESI (Edge Side Includes) leaves the parts of a page that differ per visitor, such as the account button in the
+header, as holes that LiteSpeed fills in separately on every request. The page around them is cached once for
+everyone.
+
+```twig
+{{ craft.litespeed.esi('_includes/account', { is_home: is_home }, {
+    cache: 'private',
+    ttl: 300,
+    fallback: '_includes/account-client',
+}) }}
+```
+
+- It behaves like `{% include template with vars only %}`, both as a block and inline. The template also gets
+  `litespeed.pageUrl`, the URL of the page it sits in.
+- `cache` is `private` (the default: a copy per visitor), `public` (one copy for everyone) or `no-cache`. `ttl` is in
+  seconds, 300 by default for private blocks and the `ttl` setting for public ones.
+- The vars travel in the block's URL, signed with Craft's `securityKey`: elements (loaded again by ID, for the same
+  site), scalars and arrays of scalars. Anything else throws. Pass IDs and short values, nothing confidential.
+- A block is rendered in a request of its own: variables set in the layout aren't there and the request URL is the
+  plugin's action, while `currentUser`, `currentSite` and global sets work as usual. `{% js %}`, `{% css %}` and
+  `craft.vite.script()` are lost, so register them in the page. `craft.litespeed.noCache()`, `ttl()` and `tag()`
+  apply to the block's own response.
+
+**Where LiteSpeed supports ESI**, so the `esi` setting is on, it's a site request and LiteSpeed reports `esi` in
+`$_SERVER['X-LSCACHE']`, the call outputs `<esi:include src="…" cache-control="private" />` and the page gets
+`esi=on` in its `X-LiteSpeed-Cache-Control`. LiteSpeed fetches the block from the plugin's `litespeed/esi/render`
+action, which answers with its own `X-LiteSpeed-Cache-Control` (`private,max-age=N`, `public,max-age=N` or
+`no-cache`) and `X-LiteSpeed-Tag`. A block that fails to render comes back empty and is logged.
+
+**Everywhere else** (locally, on OpenLiteSpeed, with the setting off), the template is rendered inline. A block that
+isn't `public` then keeps the page out of the cache, so personal content never ends up in a shared page. With
+`fallback`, that template is rendered inline instead and the page stays cacheable: the fallback has to be safe to
+cache, for example markup that fetches the personal data client-side.
+
+**Private blocks:**
+
+- LiteSpeed keys private blocks on the visitor's IP and a session cookie it knows, and Craft's isn't one of them. So
+  the plugin sets an `lsc_private` cookie at login, and gives it a new value at logout.
+- Logging out, and saving your own account, sends `X-LiteSpeed-Purge: private,*`, which empties that visitor's
+  private blocks.
+- Tags on a private block are private: a purge from a save in the CP never reaches another visitor's private
+  blocks. Keep private TTLs short, or use `no-cache` for blocks that always have to be current.
+- The page URL is part of the block's URL, so a private block is cached per page it sits in.
+
+Without the plugin, `craft.litespeed` is undefined: an error in devMode, and silently nothing otherwise. What we
+found out about LiteSpeed's ESI support, and what's still to be verified on a real server, is in
+[roadmap/esi.md](roadmap/esi.md).
+
 ## Settings
 
 Everything below can be set under *LiteSpeed → Settings*, which admins see in the section's nav (*Settings →
 Plugins → LiteSpeed* leads there too). The CP saves to project config, so it's only editable where `allowAdminChanges` is on; elsewhere admins see it read-only. To set a value per
 environment, enter an environment variable such as `$LITESPEED_ENABLED` or `$LITESPEED_PREFIX` (`enabled`
 and `prefix` accept one), or set it in `config/litespeed.php`, which overrides the CP: an overridden field is
-shown read-only. The relay settings (`loopbackUrls`, `loopbackOptions`) and `maxHeaderLength` are config-file only.
+shown read-only. The relay settings (`loopbackUrls`, `loopbackOptions`), `maxHeaderLength` and `esi` are config-file
+only.
 
 | Setting | Default | |
 |---|---|---|
@@ -249,6 +302,7 @@ shown read-only. The relay settings (`loopbackUrls`, `loopbackOptions`) and `max
 | `loopbackUrls` | each host's first site URL | Where console and queue purges are relayed to, when LiteSpeed has to be reached on another URL than the site's base URL. Config file only |
 | `loopbackOptions` | `[]` | Guzzle options for that relay request, merged over a 10 second timeout and no redirects. Config file only |
 | `maxHeaderLength` | `8000` | Longest tag or purge header sent, in bytes. Config file only |
+| `esi` | `false` | Render `craft.litespeed.esi()` blocks as ESI includes where LiteSpeed supports ESI. Accepts an environment variable. Config file only |
 
 `maxHeaderLength` exists because servers cap header sizes and LiteSpeed doesn't document its limit. The only
 data point is an unconfirmed OpenLiteSpeed report: a header line over 16 KB is dropped and the request hangs, more
@@ -273,6 +327,10 @@ Everything the plugin does goes to `storage/logs/litespeed-<date>.log`:
   that falls back to per-type tags is logged at `[INFO]`.
 - `[WARNING] Couldn’t record <url> as sent to LiteSpeed: …`: the utility's record of a page couldn't be written.
   The page itself is unaffected.
+- `[INFO] ESI is on, but LiteSpeed doesn’t report ESI support (X-LSCACHE: …)`: once per request that calls
+  `craft.litespeed.esi()` with `esi` on, showing what the server reported (or `not set`). The blocks were rendered
+  inline.
+- `[ERROR] Couldn’t render the ESI block <template>: …`: a block's template failed. LiteSpeed got an empty block.
 
 LiteSpeed itself doesn't acknowledge a purge, so the log shows what was sent, not what LiteSpeed did with it. To
 confirm, request the page again: `x-litespeed-cache: miss` means it was purged.
@@ -289,5 +347,6 @@ confirm, request the page again: `x-litespeed-cache: miss` means it was purged.
 - **Copied databases.** The default prefix comes from the system UID, so a staging site built from a
   production database shares production's prefix. That's harmless while each runs on its own vhost; set
   `prefix` when two of them share one.
-- **Not yet supported:** private cache for logged-in users and ESI. Logged-in users are never cached. The design,
-  and what we found out about LiteSpeed along the way, is in [roadmap/esi.md](roadmap/esi.md).
+- **ESI is unverified on a real server.** The first version is built, but whether Combell's LiteSpeed supports ESI,
+  and how it treats private blocks, still has to be checked on staging: see [roadmap/esi.md](roadmap/esi.md).
+  Pages for logged-in users are still never cached; only their ESI blocks are.

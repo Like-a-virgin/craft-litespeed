@@ -150,6 +150,35 @@ class TagsTest extends TestCase
         $this->assertSame('*', Tags::purgeHeader(['ab12cd_id.1'], true));
     }
 
+    public function testAPrivatePurgeFollowsThePublicPart(): void
+    {
+        $this->assertSame('public,tag=ab12cd_id.1,tag=ab12cd_E.all;private,*', Tags::purgeHeader(['ab12cd_id.1', 'ab12cd_E.all'], private: true));
+        $this->assertSame('public,stale,tag=ab12cd_id.1;private,*', Tags::purgeHeader(['ab12cd_id.1'], stale: true, private: true));
+        $this->assertSame('*;private,*', Tags::purgeHeader([], true, private: true));
+    }
+
+    public function testAPrivatePurgeCanGoOutOnItsOwn(): void
+    {
+        $this->assertSame('private,*', Tags::purgeHeader([], private: true));
+    }
+
+    /**
+     * The private part goes out with the first chunk only, so only that one has to leave room for it.
+     */
+    public function testTheFirstChunkKeepsRoomForThePrivatePurge(): void
+    {
+        $tags = array_map(fn(int $id) => "ab12cd_id.{$id}", range(1, 2000));
+        $chunks = Tags::purgeChunks(self::PREFIX, $tags, 8000, private: true);
+
+        $this->assertSame($tags, array_merge(...$chunks));
+        $this->assertLessThanOrEqual(8000, strlen(Tags::purgeHeader($chunks[0], private: true)));
+        $this->assertGreaterThan(8000 - 30, strlen(Tags::purgeHeader($chunks[1])));
+
+        foreach (array_slice($chunks, 1) as $chunk) {
+            $this->assertLessThanOrEqual(8000, strlen(Tags::purgeHeader($chunk)));
+        }
+    }
+
     public function testNothingToPurgeSendsNoHeader(): void
     {
         $this->assertNull(Tags::purgeHeader([]));

@@ -1,7 +1,8 @@
 # ESI and caching for logged-in users
 
-**Status:** design, not started. Written up during GT-113 (October 2026). Answer the [open questions](#open-questions)
-on a real LiteSpeed server before building any of it.
+**Status:** first version built, open questions still to verify on staging. Written up and built during GT-113
+(October 2026). The [Design](#design) section describes what was built; answer the [open questions](#open-questions)
+on staging before relying on it.
 
 ## Why
 
@@ -42,8 +43,8 @@ as holes that LiteSpeed fills in separately on every request.
 
 ## Open questions
 
-Answer these before building, with one hard-coded `<esi:include>` in a test template and a small endpoint that prints
-a timestamp and `currentUser.friendlyName`:
+Answer these on staging, which has `esi` on. Whenever ESI is on but not detected, the plugin logs what `X-LSCACHE`
+contains:
 
 1. **Edition.** Does Combell run LiteSpeed Enterprise? Without it there's no ESI at all.
 2. **Detection.** What does `$_SERVER['X-LSCACHE']` contain on Combell? The WordPress plugin reads ESI support from it.
@@ -56,17 +57,21 @@ a timestamp and `currentUser.friendlyName`:
    - after a logout and a new `lsc_private` value, is the old block out of reach?
 6. **`no-vary` on a page.** Does a page sent with `no-vary` reach logged-in users (who carry `_lscache_vary`) from the
    guests' cache entry, while its blocks still vary?
+7. **The include's `cache-control`.** The docs say it's only used to look the block up (`public` or `private`, plus
+   `no-vary`). Is the block's own `X-LiteSpeed-Cache-Control` then what decides how long it's kept?
+8. **Purging everything and the private cache at once.** Does LiteSpeed accept `*;private,*`?
 
 ## Design
 
 ### Templates
 
 ```twig
-{{ craft.litespeed.esi('_partials/user-menu', { entry: entry }, { cache: 'private', ttl: 600 }) }}
+{{ craft.litespeed.esi('_partials/user-menu', { entry: entry }, { cache: 'private', ttl: 600, fallback: '_partials/user-menu-client' }) }}
 ```
 
 - `template` is any site template, `vars` what it gets, and `options.cache` one of `private`, `public` or `no-cache`,
-  with `options.ttl` in seconds.
+  with `options.ttl` in seconds: 300 by default for private blocks, the `ttl` setting for public ones.
+  `options.fallback` is a template to render inline instead where ESI isn't available.
 - It behaves like `{% include template with vars only %}`, whether it ends up as an ESI block or is rendered inline. The
   inline fallback uses `only` as well, so a template that works locally works as a block.
 - The block is rendered in a request of its own, so the template has to work on its own:
@@ -81,24 +86,44 @@ a timestamp and `currentUser.friendlyName`:
   | `{% cache %}` | Works as usual |
 
 - The vars travel in the page's HTML, as part of the block URL: pass IDs and short values, nothing confidential.
+  Elements (at the top level of `vars`) travel as class and ID in a map of their own, so an array can't pass for one;
+  scalars and arrays of scalars go as they are; anything else throws an `InvalidArgumentException`.
+- `craft.litespeed.noCache()`, `ttl()` and `tag()` in a block template apply to the block's response. A block that
+  calls `esi()` itself renders that one inline.
 - Only what really differs per person goes in a private block: the name, the profile picture, the account link instead
   of "Log in". The menu stays in the page, cached and purged as it is now.
 
 ### Rendering
 
-- `esi()` writes an `<esi:include>` when the `esi` setting is on, the request is a site request, and LiteSpeed reports
-  ESI support. It marks the response, and `CacheService` adds `esi=on` to `X-LiteSpeed-Cache-Control`.
+- `esi()` writes an `<esi:include>` when the `esi` setting is on, the request is a site request, and
+  `$_SERVER['X-LSCACHE']` contains `esi` (what the WordPress plugin checks). It marks the response, and `CacheService`
+  adds `esi=on` to `X-LiteSpeed-Cache-Control`, `no-cache` included. A response whose HTML contains `<esi:include`
+  gets it too, so a `{% cache %}` block that replays an include still works.
+- The include's `cache-control` is only the lookup scope, `private` or `public`, and is left out for `no-cache`: the
+  docs say it's used for cache lookups, while the block's own response says how long it's kept.
 - Otherwise, so locally, on OpenLiteSpeed or with the setting off, it renders the template inline. A block that isn't
-  `public` then also calls `noCache()`, so personal content never ends up in a shared page.
-- `src` points at a plugin action. The template, vars, site, cache scope, TTL and page URL go in one
-  `Security::hashData()` payload.
-- The action renders the template in site mode for the site in the payload, collects the element cache tags while it
-  does, and sends its own `X-LiteSpeed-Cache-Control` (`private,max-age=…`, `public,max-age=…` or `no-cache`) and
-  `X-LiteSpeed-Tag`. `CacheService` already leaves an `X-LiteSpeed-Cache-Control` it didn't set alone.
+  `public` then also calls `noCache()`, so personal content never ends up in a shared page. With `fallback`, the
+  fallback template is rendered inline instead and the page stays cacheable.
+- `src` is a path to the `litespeed/esi/render` action (`/actions/litespeed/esi/render?payload=…`), built with
+  `UrlHelper::actionUrl()` without `index.php`, so there's no `&` that LiteSpeed would have to decode. The template,
+  vars, site, cache scope, TTL and page URL go in one `Security::hashData()` payload, base64url-encoded in the
+  `payload` query parameter. The page URL makes a block's URL unique per page, so a private block only hits when the
+  same page is opened again within its TTL.
+- The action takes GET only, anonymously, also while the system is offline. It sets the site from the payload, loads
+  the elements again for that site, renders the template in site mode while collecting the element cache info, and
+  sends its own `X-LiteSpeed-Cache-Control` (`private,max-age=…`, `public,max-age=…` or `no-cache`) and
+  `X-LiteSpeed-Tag`. An invalid payload gets an empty 400; a template that fails gets an empty 500 with `no-cache`,
+  and is logged.
+- The plugin's normal response handling leaves block requests alone, recognised by their route: no URL or tree tags
+  for the action URL, no tracker record, no `_lscache_vary` reconcile.
 
 ### Visitor identity
 
-The plugin sets an `lsc_private` cookie with a random value of at least 16 bytes at login, and a new value at logout.
+The plugin sets an `lsc_private` cookie with 16 random bytes (32 hex characters) at login, and a new value at logout.
+It's httpOnly, on path `/`, secure where Craft's cookies are, and lasts as long as the `_lscache_vary` cookie. Craft
+validates cookies, so the value LiteSpeed sees is Craft's signed wrapper around it, still unique per login. A login
+restored from Craft's identity cookie keeps the `lsc_private` the browser already has, and block requests never
+touch it.
 `CraftSessionId` isn't on LiteSpeed's list, so without it LiteSpeed would build the key from every long cookie it
 receives, analytics cookies included. GA4's `_ga_<id>` changes during a visit, which would make private blocks hardly
 ever hit.
@@ -118,7 +143,10 @@ Pages that are personal from top to bottom (dashboards, account pages) stay `no-
 
 - A block's element tags go on the block's own response, so a change only purges the blocks that showed it, not the
   pages they sit in.
-- `private, *` goes out on the logout response, and on the response to a user's own profile save.
+- `private,*` goes out on the logout response, and on the response to a logged-in user saving their own user element.
+  It follows the public part of the same header (`public,tag=a,tag=b;private,*`), and a purge too long for one
+  response keeps room for it in the first part. Console and queue relays drop it, since it only means something on
+  the visitor's own response, and the tracker ignores it.
 - When an editor changes another user in the CP, the purge reaches the editor, not that user. Private blocks therefore
   get a short TTL (five to ten minutes), or are sent `no-cache` when they have to be current.
 
@@ -130,8 +158,8 @@ Templates that call `craft.litespeed.esi()` lose that variable when the plugin i
 - **Otherwise:** `craft.litespeed.esi(…)` quietly renders nothing, so the block disappears from the page without an
   error. That's worse than the other `craft.litespeed` calls, which only change headers.
 
-To keep sites working without the plugin, wrap the call in a partial of the site's own, so uninstalling falls back to
-a plain include in one place:
+To keep sites working without the plugin, a site can wrap the call in a partial of its own, so uninstalling falls
+back to a plain include in one place. Not decided yet: Aquaduin calls `craft.litespeed.esi()` directly for now.
 
 ```twig
 {# templates/_partials/esi.twig #}
@@ -143,13 +171,14 @@ a plain include in one place:
 ```
 
 LiteSpeed keeps serving the pages it already cached, with `<esi:include>` tags that point at an action that no longer
-exists. So the plugin purges everything in `beforeUninstall()`, and the README's uninstall steps say to remove the
-`.htaccess` block too. Without that, nothing purges LiteSpeed any more while `CacheLookup on` keeps serving cached pages
+exists. So the plugin should purge everything in `beforeUninstall()`, and the README's uninstall steps should say to
+remove the `.htaccess` block too. Neither is built yet. Without that, nothing purges LiteSpeed any more while `CacheLookup on` keeps serving cached pages
 until their TTL runs out. That part applies today, without ESI.
 
 ### Settings
 
-- `esi` (`bool|string`, default `false`): turn ESI on. It accepts an environment variable, like `enabled`.
+- `esi` (`bool|string`, default `false`): turn ESI on. It accepts an environment variable, like `enabled`, and is
+  config-file only.
 
 ### Later
 

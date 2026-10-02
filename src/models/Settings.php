@@ -92,6 +92,12 @@ class Settings extends Model
     public int $maxHeaderLength = 8000;
 
     /**
+     * Render `craft.litespeed.esi()` blocks as ESI includes where LiteSpeed supports them. Accepts an env var.
+     * Config file only.
+     */
+    public bool|string $esi = false;
+
+    /**
      * The CP posts table rows and blank strings, which the typed properties can't hold, so they're
      * normalised before assignment rather than in a filter validator.
      */
@@ -170,6 +176,11 @@ class Settings extends Model
     public function isEnabled(): bool
     {
         return (bool) App::parseBooleanEnv($this->enabled);
+    }
+
+    public function isEsiEnabled(): bool
+    {
+        return (bool) App::parseBooleanEnv($this->esi);
     }
 
     public function getPrefix(): string

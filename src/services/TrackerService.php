@@ -37,6 +37,10 @@ class TrackerService extends Component
      */
     public function remember(int $siteId, string $url, string $variant, int $maxAge, array $tags): void
     {
+        if (LiteSpeed::getInstance()->esi->isBlockRequest()) {
+            return;
+        }
+
         $this->pending = [
             'siteId'     => $siteId,
             'url'        => $url,
@@ -82,7 +86,7 @@ class TrackerService extends Component
     }
 
     /**
-     * Forgets the pages a purge reaches.
+     * Forgets the pages a public purge reaches. Private purges never reach a recorded page.
      *
      * @param string[] $tags LiteSpeed tags, already prefixed.
      */

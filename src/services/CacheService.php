@@ -7,6 +7,7 @@ use craft\base\Component;
 use craft\helpers\ConfigHelper;
 use craft\web\Request;
 use craft\web\Response;
+use GlueAgency\LiteSpeed\enums\EsiCache;
 use GlueAgency\LiteSpeed\enums\Header;
 use GlueAgency\LiteSpeed\helpers\Pages;
 use GlueAgency\LiteSpeed\helpers\Tags;
@@ -84,6 +85,57 @@ class CacheService extends Component
 
     public function prepareResponse(Response $response): void
     {
+        if (LiteSpeed::getInstance()->esi->isBlockRequest()) {
+            return;
+        }
+
+        $this->prepareCacheControl($response);
+        $this->sendEsi($response);
+    }
+
+    /**
+     * Sends an ESI block's own cache headers. Tags on a private block are private tags, which public purges don't
+     * reach: such a block lives as long as its TTL, or until the visitor's own private purge.
+     *
+     * @param string[] $craftTags
+     */
+    public function prepareBlockResponse(Response $response, EsiCache $cache, int $ttl, array $craftTags, ?int $duration): void
+    {
+        $headers = $response->getHeaders();
+        $ttl = $this->ttl ?? $ttl;
+
+        if ($duration) {
+            $ttl = min($ttl, $duration);
+        }
+
+        if ($this->noCache) {
+            $cache = EsiCache::NO_CACHE;
+        }
+
+        $cacheControl = $cache->cacheControl($ttl);
+        $headers->set(Header::CACHE_CONTROL->value, $cacheControl);
+
+        if ($cacheControl === EsiCache::NO_CACHE->value) {
+            return;
+        }
+
+        $settings = LiteSpeed::getInstance()->getSettings();
+        $prefix = $settings->getPrefix();
+        $customTags = array_filter(array_map(fn(string $tag) => Tags::custom($prefix, $tag), $this->tags));
+        $value = Tags::cacheHeader($prefix, $craftTags, $customTags, $settings->maxHeaderLength);
+
+        if ($value === null) {
+            Craft::warning('Too many cache tags for an ESI block, not caching it.', 'litespeed');
+            $headers->set(Header::CACHE_CONTROL->value, EsiCache::NO_CACHE->value);
+
+            return;
+        }
+
+        $headers->set(Header::TAG->value, $value);
+    }
+
+    protected function prepareCacheControl(Response $response): void
+    {
         $rendered = $this->collecting;
         [$craftTags, $duration] = $this->stopCollecting();
 
@@ -116,6 +168,22 @@ class CacheService extends Component
         $headers->set(Header::CACHE_CONTROL->value, "public,max-age={$maxAge}");
         $this->sendVary($response);
         $this->remember($request, $response);
+    }
+
+    protected function sendEsi(Response $response): void
+    {
+        $headers = $response->getHeaders();
+        $cacheControl = (string) $headers->get(Header::CACHE_CONTROL->value);
+
+        if (headers_sent() || $cacheControl === '' || ! LiteSpeed::getInstance()->esi->hasIncludes($response)) {
+            return;
+        }
+
+        if (preg_match('/(^|,)\s*esi=on\s*(,|$)/i', $cacheControl)) {
+            return;
+        }
+
+        $headers->set(Header::CACHE_CONTROL->value, $cacheControl . ',esi=on');
     }
 
     protected function sendVary(Response $response): void

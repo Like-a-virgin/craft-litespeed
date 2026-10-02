@@ -5,6 +5,8 @@ namespace GlueAgency\LiteSpeed;
 use Craft;
 use craft\base\Model;
 use craft\base\Plugin;
+use craft\elements\User;
+use craft\events\ElementEvent;
 use craft\events\InvalidateElementCachesEvent;
 use craft\events\RegisterCacheOptionsEvent;
 use craft\events\RegisterComponentTypesEvent;
@@ -26,6 +28,7 @@ use GlueAgency\LiteSpeed\enums\Permission;
 use GlueAgency\LiteSpeed\models\Settings;
 use GlueAgency\LiteSpeed\services\CacheService;
 use GlueAgency\LiteSpeed\services\CheckService;
+use GlueAgency\LiteSpeed\services\EsiService;
 use GlueAgency\LiteSpeed\services\PurgeService;
 use GlueAgency\LiteSpeed\services\TrackerService;
 use GlueAgency\LiteSpeed\utilities\CacheUtility;
@@ -35,12 +38,15 @@ use Psr\Log\LogLevel;
 use yii\base\Application;
 use yii\base\Event;
 use yii\queue\Queue;
+use yii\web\User as WebUser;
+use yii\web\UserEvent;
 
 /**
  * LiteSpeed Cache integration: cache control, tags, vary and purging.
  *
  * @property-read CacheService $cache
  * @property-read CheckService $check
+ * @property-read EsiService $esi
  * @property-read PurgeService $purge
  * @property-read TrackerService $tracker
  *
@@ -67,6 +73,7 @@ class LiteSpeed extends Plugin
             'components' => [
                 'cache'   => CacheService::class,
                 'check'   => CheckService::class,
+                'esi'     => EsiService::class,
                 'purge'   => PurgeService::class,
                 'tracker' => TrackerService::class,
             ],
@@ -94,6 +101,10 @@ class LiteSpeed extends Plugin
                 $this->registerCacheOptions();
                 $this->registerPurgeTriggers();
                 $this->registerResponseHandlers();
+
+                if ($this->getSettings()->isEsiEnabled()) {
+                    $this->registerPrivateIdentity();
+                }
             }
         });
     }
@@ -245,6 +256,24 @@ class LiteSpeed extends Plugin
         if (Craft::$app->getRequest()->getIsConsoleRequest()) {
             Craft::$app->on(Application::EVENT_AFTER_REQUEST, fn() => $this->purge->relay());
         }
+    }
+
+    protected function registerPrivateIdentity(): void
+    {
+        if (Craft::$app->getRequest()->getIsConsoleRequest()) {
+            return;
+        }
+
+        Event::on(WebUser::class, WebUser::EVENT_AFTER_LOGIN, fn(UserEvent $event) => $this->esi->handleLogin($event));
+        Event::on(WebUser::class, WebUser::EVENT_AFTER_LOGOUT, fn() => $this->esi->handleLogout());
+
+        Event::on(Elements::class, Elements::EVENT_AFTER_SAVE_ELEMENT, function(ElementEvent $event) {
+            if (! $event->element instanceof User || $event->element->id !== Craft::$app->getUser()->getId()) {
+                return;
+            }
+
+            $this->purge->purgePrivate();
+        });
     }
 
     protected function registerResponseHandlers(): void

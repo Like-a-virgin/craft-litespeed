@@ -19,6 +19,8 @@ use craft\elements\User;
  */
 class Tags
 {
+    protected const PRIVATE_PURGE = 'private,*';
+
     protected const ALIASES = [
         Entry::class        => 'E',
         Asset::class        => 'A',
@@ -152,12 +154,13 @@ class Tags
 
     /**
      * Splits a purge into groups of tags whose `X-LiteSpeed-Purge` value stays within `$maxLength`. Each group has
-     * to go out on a response of its own. Purging the install tag supersedes any other tag.
+     * to go out on a response of its own. Purging the install tag supersedes any other tag. A private purge rides
+     * along on the first group, so that one keeps room for it.
      *
      * @param string[] $tags
      * @return string[][]
      */
-    public static function purgeChunks(string $prefix, array $tags, int $maxLength, bool $stale = false): array
+    public static function purgeChunks(string $prefix, array $tags, int $maxLength, bool $stale = false, bool $private = false): array
     {
         $tags = array_values(array_unique($tags));
 
@@ -173,7 +176,7 @@ class Tags
 
         $chunks = [];
         $chunk = [];
-        $length = strlen(self::purgeValue([], $stale));
+        $length = strlen(self::purgeValue([], $stale)) + ($private ? strlen(';' . self::PRIVATE_PURGE) : 0);
 
         foreach ($tags as $tag) {
             $tagLength = strlen(',tag=' . $tag);
@@ -194,19 +197,30 @@ class Tags
     }
 
     /**
+     * Returns the `X-LiteSpeed-Purge` value, or null when there's nothing to purge. A private purge empties the
+     * private cache of the visitor whose request gets the response, and of nobody else.
+     *
      * @param string[] $tags
      */
-    public static function purgeHeader(array $tags, bool $everything = false, bool $stale = false): ?string
+    public static function purgeHeader(array $tags, bool $everything = false, bool $stale = false, bool $private = false): ?string
     {
+        $parts = [];
+
         if ($everything) {
-            return '*';
+            $parts[] = '*';
+        } elseif (! empty($tags)) {
+            $parts[] = self::purgeValue(array_values(array_unique($tags)), $stale);
         }
 
-        if (empty($tags)) {
+        if ($private) {
+            $parts[] = self::PRIVATE_PURGE;
+        }
+
+        if (empty($parts)) {
             return null;
         }
 
-        return self::purgeValue(array_values(array_unique($tags)), $stale);
+        return implode(';', $parts);
     }
 
     /**
