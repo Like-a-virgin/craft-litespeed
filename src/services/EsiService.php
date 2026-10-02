@@ -100,7 +100,7 @@ class EsiService extends Component
      * `craft.litespeed.esi()`: behaves like `{% include template with vars only %}`.
      *
      * @param array<string, mixed> $vars
-     * @param array{cache?: string, ttl?: int, fallback?: string} $options
+     * @param array{cache?: string, ttl?: int, fallback?: string, pageUrl?: bool} $options
      * @throws InvalidArgumentException
      */
     public function block(string $template, array $vars = [], array $options = []): Markup
@@ -113,11 +113,11 @@ class EsiService extends Component
 
         $ttl = (int) ($options['ttl'] ?? $this->defaultTtl($cache));
         $fallback = $options['fallback'] ?? null;
-        $pageUrl = $this->pageUrl ?? Craft::$app->getRequest()->getAbsoluteUrl();
+        $pageUrl = ($options['pageUrl'] ?? false) ? ($this->pageUrl ?? Craft::$app->getRequest()->getAbsoluteUrl()) : null;
         $dehydrated = Esi::dehydrate($vars);
         $available = $this->isAvailable();
 
-        if ($available) {
+        if ($available && Craft::$app->getUser()->getIsGuest()) {
             $this->included = true;
 
             return Template::raw(Esi::includeTag($this->src([
@@ -131,15 +131,18 @@ class EsiService extends Component
             ]), $cache));
         }
 
-        if (Esi::forcesNoCache($cache, $available, $fallback !== null)) {
+        // A logged-in response is never cached, so it gets the block itself instead of an include
+        $usesFallback = ! $available && $fallback !== null;
+
+        if (Esi::forcesNoCache($cache, $usesFallback)) {
             LiteSpeed::getInstance()->cache->noCache();
         }
 
-        return Template::raw(Craft::$app->getView()->renderTemplate($fallback ?? $template, $this->templateVars($vars, $pageUrl)));
+        return Template::raw(Craft::$app->getView()->renderTemplate($usesFallback ? $fallback : $template, $this->templateVars($vars, $pageUrl)));
     }
 
     /**
-     * @return array{template: string, vars: array<string, mixed>, elements: array<string, array{string, int}>, siteId: int, cache: EsiCache, ttl: int, pageUrl: string}|null
+     * @return array{template: string, vars: array<string, mixed>, elements: array<string, array{string, int}>, siteId: int, cache: EsiCache, ttl: int, pageUrl: string|null}|null
      */
     public function readPayload(string $payload): ?array
     {
@@ -152,7 +155,11 @@ class EsiService extends Component
 
         $block = Json::decodeIfJson($data);
 
-        if (! is_array($block) || ! is_string($block['template'] ?? null) || ! is_string($block['pageUrl'] ?? null)) {
+        if (! is_array($block) || ! is_string($block['template'] ?? null)) {
+            return null;
+        }
+
+        if (isset($block['pageUrl']) && ! is_string($block['pageUrl'])) {
             return null;
         }
 
@@ -183,14 +190,14 @@ class EsiService extends Component
             'siteId'   => $block['siteId'],
             'cache'    => $cache,
             'ttl'      => $block['ttl'],
-            'pageUrl'  => $block['pageUrl'],
+            'pageUrl'  => $block['pageUrl'] ?? null,
         ];
     }
 
     /**
      * Renders a block in the current site, collecting the element cache info its template queries.
      *
-     * @param array{template: string, vars: array<string, mixed>, elements: array<string, array{string, int}>, siteId: int, cache: EsiCache, ttl: int, pageUrl: string} $block
+     * @param array{template: string, vars: array<string, mixed>, elements: array<string, array{string, int}>, siteId: int, cache: EsiCache, ttl: int, pageUrl: string|null} $block
      * @return array{html: string, tags: string[], duration: int|null}
      */
     public function render(array $block): array
@@ -263,7 +270,7 @@ class EsiService extends Component
      * @param array<string, mixed> $vars
      * @return array<string, mixed>
      */
-    protected function templateVars(array $vars, string $pageUrl): array
+    protected function templateVars(array $vars, ?string $pageUrl): array
     {
         return array_merge($vars, [
             'litespeed' => ['pageUrl' => $pageUrl],

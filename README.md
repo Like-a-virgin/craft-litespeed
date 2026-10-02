@@ -242,12 +242,13 @@ everyone.
 }) }}
 ```
 
-- It behaves like `{% include template with vars only %}`, both as a block and inline. The template also gets
-  `litespeed.pageUrl`, the URL of the page it sits in.
+- It behaves like `{% include template with vars only %}`, both as a block and inline. With `pageUrl: true` the
+  template also gets `litespeed.pageUrl`, the URL of the page it sits in; that makes the block's URL, and so its
+  cache entry, one per page.
 - `cache` is `private` (the default: a copy per visitor), `public` (one copy for everyone) or `no-cache`. `ttl` is in
   seconds, 300 by default for private blocks and the `ttl` setting for public ones.
-- The vars travel in the block's URL, signed with Craft's `securityKey`: elements (loaded again by ID, for the same
-  site), scalars and arrays of scalars. Anything else throws. Pass IDs and short values, nothing confidential.
+- The vars travel in the block's URL: elements (loaded again by ID, for the same site), scalars and arrays of
+  scalars. Anything else throws. Pass IDs and short values, nothing confidential.
 - A block is rendered in a request of its own: variables set in the layout aren't there and the request URL is the
   plugin's action, while `currentUser`, `currentSite` and global sets work as usual. `{% js %}`, `{% css %}` and
   `craft.vite.script()` are lost, so register them in the page. `craft.litespeed.noCache()`, `ttl()` and `tag()`
@@ -272,7 +273,9 @@ cache, for example markup that fetches the personal data client-side.
   private blocks.
 - Tags on a private block are private: a purge from a save in the CP never reaches another visitor's private
   blocks. Keep private TTLs short, or use `no-cache` for blocks that always have to be current.
-- The page URL is part of the block's URL, so a private block is cached per page it sits in.
+- Without `pageUrl`, a block's URL is the same on every page, so a private block keeps hitting while the visitor
+  moves around the site.
+- A logged-in visitor's page is never cached, so it gets the block rendered in place instead of an include.
 
 Without the plugin, `craft.litespeed` is undefined: an error in devMode, and silently nothing otherwise. What we
 found out about LiteSpeed's ESI support, and what's still to be verified on a real server, is in

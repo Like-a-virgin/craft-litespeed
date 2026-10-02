@@ -80,7 +80,7 @@ contains:
   |---|---|
   | `entry` and other route variables | Only what's passed. Elements go in as an ID and are loaded again |
   | Variables set in the layout | Missing: pass them, or set them in the template |
-  | The page URL (`craft.app.request`, the active menu item) | The URL of the ESI action. The plugin passes the page URL as `litespeed.pageUrl` |
+  | The page URL (`craft.app.request`, the active menu item) | The URL of the ESI action. With `pageUrl: true` the plugin passes the page URL as `litespeed.pageUrl` |
   | `currentUser`, `currentSite`, global sets | Available as usual |
   | `{% js %}`, `{% css %}`, `craft.vite.script()` | Lost: a block has no `<head>` or end of `<body>`. Register them in the page |
   | `{% cache %}` | Works as usual |
@@ -106,9 +106,11 @@ contains:
   fallback template is rendered inline instead and the page stays cacheable.
 - `src` is a path to the `litespeed/esi/render` action (`/actions/litespeed/esi/render?payload=…`), built with
   `UrlHelper::actionUrl()` without `index.php`, so there's no `&` that LiteSpeed would have to decode. The template,
-  vars, site, cache scope, TTL and page URL go in one `Security::hashData()` payload, base64url-encoded in the
-  `payload` query parameter. The page URL makes a block's URL unique per page, so a private block only hits when the
-  same page is opened again within its TTL.
+  vars, site, cache scope, TTL and, with `pageUrl: true`, the page URL go in one `Security::hashData()` payload,
+  base64url-encoded in the `payload` query parameter. The page URL makes a block's URL unique per page, so only pass
+  it when the template needs it: without it a private block keeps hitting across the site.
+- A logged-in visitor gets the block rendered in place: the plugin never caches a logged-in response, so an include
+  would only cost a request, and depend on open question 3. That changes if logged-in pages are ever cached.
 - The action takes GET only, anonymously, also while the system is offline. It sets the site from the payload, loads
   the elements again for that site, renders the template in site mode while collecting the element cache info, and
   sends its own `X-LiteSpeed-Cache-Control` (`private,max-age=…`, `public,max-age=…` or `no-cache`) and

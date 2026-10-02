@@ -147,20 +147,18 @@ class EsiTest extends TestCase
     public static function noCacheDecisions(): array
     {
         return [
-            'esi, private'               => [EsiCache::PRIVATE, true, false, false],
-            'esi, no-cache'              => [EsiCache::NO_CACHE, true, false, false],
-            'inline, private'            => [EsiCache::PRIVATE, false, false, true],
-            'inline, no-cache'           => [EsiCache::NO_CACHE, false, false, true],
-            'inline, public'             => [EsiCache::PUBLIC, false, false, false],
-            'inline, private, fallback'  => [EsiCache::PRIVATE, false, true, false],
-            'inline, no-cache, fallback' => [EsiCache::NO_CACHE, false, true, false],
+            'private'            => [EsiCache::PRIVATE, false, true],
+            'no-cache'           => [EsiCache::NO_CACHE, false, true],
+            'public'             => [EsiCache::PUBLIC, false, false],
+            'private, fallback'  => [EsiCache::PRIVATE, true, false],
+            'no-cache, fallback' => [EsiCache::NO_CACHE, true, false],
         ];
     }
 
     #[DataProvider('noCacheDecisions')]
-    public function testOnlyAPersonalBlockRenderedInlineWithoutFallbackKeepsThePageOutOfTheCache(EsiCache $cache, bool $available, bool $hasFallback, bool $expected): void
+    public function testOnlyAPersonalBlockRenderedInlineWithoutFallbackKeepsThePageOutOfTheCache(EsiCache $cache, bool $usesFallback, bool $expected): void
     {
-        $this->assertSame($expected, Esi::forcesNoCache($cache, $available, $hasFallback));
+        $this->assertSame($expected, Esi::forcesNoCache($cache, $usesFallback));
     }
 
     protected function element(?int $id): ElementInterface

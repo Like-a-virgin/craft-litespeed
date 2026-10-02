@@ -91,9 +91,9 @@ class Esi
      * Whether rendering a block inline has to keep the page out of the cache. A fallback template is declared
      * cache-safe by whoever passes it.
      */
-    public static function forcesNoCache(EsiCache $cache, bool $available, bool $hasFallback): bool
+    public static function forcesNoCache(EsiCache $cache, bool $usesFallback): bool
     {
-        return ! $available && ! $hasFallback && $cache !== EsiCache::PUBLIC;
+        return ! $usesFallback && $cache !== EsiCache::PUBLIC;
     }
 
     protected static function isPlain(mixed $value): bool
