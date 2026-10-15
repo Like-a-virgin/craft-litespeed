@@ -8,7 +8,7 @@ A **fork** of [`glue-agency/craft-litespeed`](https://github.com/glue-agency/cra
 - **Upstream:** https://github.com/glue-agency/craft-litespeed (branch `develop`, no releases)
 - **This fork:** https://github.com/Like-a-virgin/craft-litespeed
 - **Only change vs upstream:** the top-level composer `name` (`glue-agency/craft-litespeed` → `likeavirgin/craft-litespeed`). The PHP namespace (`GlueAgency\LiteSpeed`), plugin handle (`litespeed`), and class are **unchanged** — renaming the package name does not touch the code. **Re-apply this one-line rename on every upstream pull** (it's the one permanent divergence).
-- It's a **frozen fork**: we don't actively develop it. We pull upstream only deliberately, test, and re-tag. Low maintenance by design.
+- It's a **pinned-but-tracked fork**, not freeze-and-forget. Upstream is **actively maintained** (frequent commits, ticketed development, e.g. ESI added Oct 2026), so periodically pull upstream into our `develop`, re-apply the rename, test, and cut a new tag. We pin for reproducibility; we still adopt upstream's improvements deliberately.
 
 ## What the plugin does
 Full-page caching via **LiteSpeed LSCache** for Craft 5. LiteSpeed serves a cached page straight from memory **before PHP/Craft boots**, which is the only thing that beats Craft's ~0.5s bootstrap floor → tens-of-ms first paint. On non-LiteSpeed servers the headers are simply ignored (safe no-op on local/nginx dev). At LaV this is for **Combell Boost** sites (Boost = LiteSpeed). See `~/Obsidian/Combell/LiteSpeed LSCache voor Craft.md`.
@@ -66,8 +66,12 @@ Craft 6 ports the framework from **Yii 2 to Laravel** (beta ~Q3 2026, GA ~Q4 202
 
 - **Short term:** `craftcms/yii2-adapter` is a compatibility layer intended to run Craft 5 plugins on Craft 6 "in most cases without a single change." This fork will most likely work on early Craft 6 **via the adapter**. Verify on staging when Craft 6 lands.
 - **Long term:** the adapter is a transition aid, not permanent. A **native Laravel port** will eventually be needed. The work is re-expressing the Yii event hooks (Application/Response/Queue/User events) and the response-header injection in Laravel terms; the LSCache logic (headers, tags, purge, tracker tables) is framework-agnostic and carries over.
-- **No rush:** Craft 5 is an **LTS** release with security support to ~2031, so sites on Craft 5 keep this working for years.
-- **Decision when Craft 6 arrives:** (a) run as-is via `yii2-adapter`; (b) if glue-agency ports upstream to Craft 6, pull + re-tag; (c) otherwise port it ourselves, or re-evaluate against whatever first-party/LSCache options Craft 6 ships. Re-test on staging either way.
+- **No rush:** Craft 5 is an **LTS** release with security support to ~2031, so sites on Craft 5 keep this working for years. Do NOT port at Craft 6 GA — let Craft 6, its plugin APIs, and upstream's port mature first.
+- **Expected path (upstream is active, so prefer their work):**
+  1. Run as-is via `yii2-adapter` when a site first moves to Craft 6; verify on staging.
+  2. **Adopt upstream's native Craft 6 port** when they ship it (they're actively maintained, so this is the likely path) → pull + re-tag.
+  3. **Self-port only as a last resort** — if upstream abandons it AND we still need LSCache on Craft 6. By then re-evaluate the landscape: Craft-6-on-Laravel may have a first-party or better option worth switching to instead of maintaining our own port.
+  The LSCache logic (headers, tags, purge, tracker tables) is framework-agnostic and carries over; a port is re-expressing the Yii event hooks + response-header injection in Craft-6/Laravel terms. Re-test on staging either way.
 
 ## Links
 - Upstream: https://github.com/glue-agency/craft-litespeed
