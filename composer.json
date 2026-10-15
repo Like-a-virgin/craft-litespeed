@@ -1,5 +1,5 @@
 {
-    "name": "glue-agency/craft-litespeed",
+    "name": "likeavirgin/craft-litespeed",
     "description": "LiteSpeed Cache (LSCache) integration for Craft CMS: tag-based purging, cache control and vary",
     "type": "craft-plugin",
     "license": "mit",
