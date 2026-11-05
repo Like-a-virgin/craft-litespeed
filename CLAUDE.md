@@ -59,6 +59,7 @@ It sends `X-LiteSpeed-Cache-Control: public,max-age=N` (a LiteSpeed-only header,
 Because upstream never tags releases, **we cut our own stable releases** from commits we've tested:
 - Tag `vX.Y.Z` only at a commit verified on a staging LiteSpeed site.
 - `v1.0.0` = first LaV-tested release (the current one, at the rename commit).
+- `v1.0.1` = docs only (AGENTS.md "Write from a migration"), code identical to `v1.0.0`, so no new staging test was needed. LaV release notes sit at the top of `CHANGELOG.md` as `## LaV fork X.Y.Z`; keep them when merging upstream's CHANGELOG.
 - Loose SemVer: **patch** = upstream bugfix pulled + retested; **minor** = upstream feature; **major** = a Craft major version bump or a breaking change.
 - Projects pin `^1.x` from this fork's VCS repo; the lockfile keeps deploys reproducible.
 - **To cut a release:** merge upstream `develop` into our `develop`, re-apply the `name` rename, run the test suite + a staging smoke test, then `git tag vX.Y.Z` and push the tag.

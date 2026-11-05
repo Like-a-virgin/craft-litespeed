@@ -1,6 +1,6 @@
 # LiteSpeed: architecture (as built)
 
-As-built description of `likeavirgin/craft-litespeed` (LaV's fork of `glue-agency/craft-litespeed`), branch `develop` at `138a8f9` (2026-11-05; tag `v1.0.0`). Entry point for agents: [`../AGENTS.md`](../AGENTS.md). Fork maintenance, releases and the Craft 6 strategy: [`../CLAUDE.md`](../CLAUDE.md). ESI design notes: [`../roadmap/esi.md`](../roadmap/esi.md). User documentation: `README.md`.
+As-built description of `likeavirgin/craft-litespeed` (LaV's fork of `glue-agency/craft-litespeed`), branch `develop` (2026-11-05; tags `v1.0.0`, `v1.0.1` = docs only, same code). Entry point for agents: [`../AGENTS.md`](../AGENTS.md). Fork maintenance, releases and the Craft 6 strategy: [`../CLAUDE.md`](../CLAUDE.md). ESI design notes: [`../roadmap/esi.md`](../roadmap/esi.md). User documentation: `README.md`.
 
 `AGENTS.md`, `CLAUDE.md` and `docs/` are LaV additions; upstream has none of them, so an upstream merge never conflicts on them.
 
@@ -70,7 +70,7 @@ Controller namespace switches between web and console in `registerControllers()`
 
 Migrations: `Install.php` and `m261002_100000_create_page_tables.php` are identical and both guard with `tableExists` (upgrade path for installs older than the tracker). No records/ActiveRecord classes; raw `craft\db\Query` + `Db::*` helpers. Table names in `src/db/Table.php`.
 
-**Project config vs DB:** settings live in project config (`plugins.litespeed.settings`) via `savePluginSettings` (`SettingsController.php`); `config/litespeed.php` overrides (overridden fields render disabled, `SettingsController.php`). The tracker tables are runtime DB data only. Failed relays live in the Craft data cache under `litespeed:pending-purges` (`PurgeService.php`, `store()`/`pullStored()` at 320-367, guarded by `Craft::$app->getMutex()`).
+**Project config vs DB:** settings live in project config (`plugins.litespeed.settings`) via `savePluginSettings` (`SettingsController.php`); `config/litespeed.php` overrides (overridden fields render disabled, `SettingsController.php`). The tracker tables are runtime DB data only. Nothing here is written from a content migration; a migration only purges (`AGENTS.md` "Write from a migration"). Failed relays live in the Craft data cache under `litespeed:pending-purges` (`PurgeService.php`, `store()`/`pullStored()` at 320-367, guarded by `Craft::$app->getMutex()`).
 
 ### 2.4 Settings (`src/models/Settings.php`)
 

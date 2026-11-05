@@ -1,5 +1,9 @@
 # Release Notes for LiteSpeed
 
+## LaV fork 1.0.1 - 2026-11-05
+
+- Docs only, same code as v1.0.0: `AGENTS.md` "Write from a migration" (settings travel as project config; a migration only purges) and `docs/ARCHITECTURE.md`.
+
 ## 5.0.0 - Initial release
 
 - Send `X-LiteSpeed-Cache-Control` on every site response: public for cacheable guest pages, `no-cache` for everything else

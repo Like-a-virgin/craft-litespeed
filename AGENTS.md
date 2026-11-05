@@ -16,6 +16,29 @@ Package `likeavirgin/craft-litespeed` = **LaV's fork** of `glue-agency/craft-lit
 - Permissions: `accessPlugin-litespeed` (purge URLs), `litespeed:purgeTags`; settings need admin.
 - Twig: `craft.litespeed.noCache()`, `.ttl(int)`, `.tag(...)`, `.varyCookie(name)`, `.esi(template, vars, options)`.
 
+## Write from a migration
+
+LiteSpeed stores nothing an editor changes: `litespeed_pages` / `litespeed_pagetags` are the cache index of the server it runs on (never written by hand or by a migration). What a migration may need:
+
+- **Settings** are project config (`plugins.litespeed.settings`; `enabled` usually from an env var), overridable in `config/litespeed.php`. Change them locally (CP: LiteSpeed > Settings, admin) and commit the YAML; `craft up` applies it before content migrations run. If you script it locally, pass every key: Craft's `savePluginSettings()` writes only the keys you pass and drops the rest from project config.
+- **Purge after data that bypasses element events.** A migration that saves elements through `saveElement()` purges by itself. One that writes raw SQL, or plugin records without their service, does not: end it with a purge. From a console request (`craft up`) the purge reaches LiteSpeed through the loopback relay (`loopbackUrls`); a failed relay waits in the data cache for the next web response. Deploys should still run `php craft litespeed/purge/all` (templates changed).
+
+```php
+public function safeUp(): bool
+{
+    // Plugin-agnostic and enough in almost every case: every cached page of this install.
+    Craft::$app->getElements()->invalidateAllCaches();
+
+    // Or targeted, only where LiteSpeed is on:
+    if (Craft::$app->getPlugins()->isPluginEnabled('litespeed')) {
+        \GlueAgency\LiteSpeed\LiteSpeed::getInstance()->purge->purgeUrls([\craft\helpers\UrlHelper::siteUrl('whitepaper')], true);
+    }
+    return true;
+}
+```
+
+The LaV plugins' own write APIs (LaV Forms `transfer->import()`, Consent `Banner::save()` and `publishDocument()`, LaV SEO settings) already call `invalidateAllCaches()`.
+
 ## Rules
 
 - **Fork rule:** the only code divergence from upstream is the composer `name`. Re-apply it on every upstream pull; keep LaV changes to docs (`AGENTS.md`, `CLAUDE.md`, `docs/`) so upstream merges stay clean. Tag `vX.Y.Z` only after a staging test on a real LiteSpeed host.
