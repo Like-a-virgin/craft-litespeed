@@ -1,5 +1,7 @@
 # LiteSpeed for Craft CMS
 
+> **For AI agents: read [AGENTS.md](AGENTS.md) first** (LaV fork notes; architecture in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)).
+
 Lets LiteSpeed Web Server's page cache (LSCache) cache Craft pages, and purges them the moment their
 content changes. A Craft port of LiteSpeed's own Laravel, Drupal and WordPress cache plugins, using the
 same response headers.
